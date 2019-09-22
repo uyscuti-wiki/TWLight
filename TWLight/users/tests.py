@@ -14,7 +14,7 @@ from django.test import TestCase, Client, RequestFactory
 from django.utils.translation import get_language
 
 from TWLight.applications.factories import ApplicationFactory
-from TWLight.applications.models import Application
+from TWLight.applications.models import Application, get_latest_app
 
 from TWLight.resources.factories import PartnerFactory
 from TWLight.resources.models import Partner
@@ -223,7 +223,7 @@ class ViewsTestCase(TestCase):
         self.assertIn('Cat floofing, telemetry, fermentation', content)
 
 
-    def test_editor_page_has_application_history(self):
+    def test_my_applications_page_has_application_history(self):
         """Expected editor application oauth_data is in their page."""
         app1 = ApplicationFactory(status=Application.PENDING, editor=self.user_editor.editor)
         app2 = ApplicationFactory(status=Application.QUESTION, editor=self.user_editor.editor)
@@ -231,10 +231,11 @@ class ViewsTestCase(TestCase):
         app4 = ApplicationFactory(status=Application.NOT_APPROVED, editor=self.user_editor.editor)
 
         factory = RequestFactory()
-        request = factory.get(self.url1)
+        request = factory.get(reverse('users:my_applications',
+            kwargs={'pk': self.editor1.pk}))
         request.user = self.user_editor
 
-        response = views.EditorDetailView.as_view()(request, pk=self.editor1.pk)
+        response = views.ListApplicationsUserView.as_view()(request, pk=self.editor1.pk)
 
         self.assertEqual(set(response.context_data['object_list']),
             set([app1, app2, app3, app4]))
@@ -248,6 +249,34 @@ class ViewsTestCase(TestCase):
         # We can't use assertTemplateUsed with RequestFactory (only with
         # Client), and testing that the rendered content is equal to an
         # expected string is too fragile.
+
+
+    def test_my_collection_page_has_authorizations(self):
+        partner1 = PartnerFactory(authorization_method=Partner.PROXY)
+        ApplicationFactory(status=Application.PENDING, editor=self.user_editor.editor, partner=partner1)
+        partner2 = PartnerFactory(authorization_method=Partner.BUNDLE)
+        ApplicationFactory(status=Application.QUESTION, editor=self.user_editor.editor, partner=partner2)
+        partner3 = PartnerFactory(authorization_method=Partner.CODES)
+        ApplicationFactory(status=Application.APPROVED, editor=self.user_editor.editor, partner=partner3)
+        partner4 = PartnerFactory(authorization_method=Partner.EMAIL)
+        ApplicationFactory(status=Application.NOT_APPROVED, editor=self.user_editor.editor, partner=partner4)
+        partner5 = PartnerFactory(authorization_method=Partner.LINK)
+        ApplicationFactory(status=Application.NOT_APPROVED, editor=self.user_editor.editor, partner=partner5)
+
+        factory = RequestFactory()
+        request = factory.get(reverse('users:my_collection',
+            kwargs={'pk': self.editor1.pk}))
+        request.user = self.user_editor
+
+        response = views.CollectionUserView.as_view()(request, pk=self.editor1.pk)
+
+        for each_authorization in response.context_data['proxy_bundle_authorizations']:
+            self.assertEqual(each_authorization.authorized_user, self.user_editor)
+            self.assertTrue(each_authorization.partner == partner1 or each_authorization.partner == partner2)
+
+        for each_authorization in response.context_data['manual_authorizations']:
+            self.assertEqual(each_authorization.authorized_user, self.user_editor)
+            self.assertTrue(each_authorization.partner == partner3 or each_authorization.partner == partner4 or each_authorization.partner == partner5)
 
 
     def test_user_home_view_anon(self):
